@@ -80,7 +80,8 @@ chat por WebSocket, upload/serve de mídia e consumo da mídia efêmera.
    ```bash
    git clone <url-do-seu-repo> chatemp && cd chatemp
    cp deploy/.env.example deploy/.env
-   # edite deploy/.env e defina DOMAIN=<IP público da VM ou domínio>
+   # edite deploy/.env e defina DOMAIN=<IP público da VM>
+   # (sem domínio? use o IP mesmo — acesso via http://<IP>)
    ./deploy/scripts/deploy.sh
    ```
 

@@ -15,7 +15,7 @@
 
 server {
     listen 80;
-    server_name ${DOMAIN};
+    server_name ${DOMAIN} _;
 
     client_max_body_size ${NGINX_MAX_BODY};
 
