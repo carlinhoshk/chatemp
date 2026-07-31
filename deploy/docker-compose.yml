@@ -1,0 +1,36 @@
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: chatemp:latest
+    environment:
+      PORT: "8080"
+      DB_PATH: /data/chatemp.db
+      UPLOAD_DIR: /data/uploads
+      STATIC_DIR: /app/static
+      ROOM_TTL: ${ROOM_TTL:-24h}
+      EPHEMERAL_TTL: ${EPHEMERAL_TTL:-15s}
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-52428800}
+    volumes:
+      - chatemp-data:/data
+    restart: unless-stopped
+    expose:
+      - "8080"
+
+  nginx:
+    image: nginx:1.27-alpine
+    depends_on:
+      - backend
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+      NGINX_MAX_BODY: ${NGINX_MAX_BODY:-50m}
+    volumes:
+      - ./nginx/chatemp.conf.template:/etc/nginx/templates/chatemp.conf.template:ro
+    ports:
+      - "80:80"
+      - "443:443"
+    restart: unless-stopped
+
+volumes:
+  chatemp-data:
