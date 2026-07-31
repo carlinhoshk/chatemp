@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { getIdentity, shortHash } from "../lib/identity";
-import { getRoom } from "../lib/api";
+import { getRoom, uploadMedia } from "../lib/api";
 import { formatCountdown } from "../lib/time";
 import { useWebSocket } from "../hooks/useWebSocket";
 import MessageBubble from "./MessageBubble";
+import MediaViewer from "./MediaViewer";
 import type { Message, Room, SelfInfo, WsPayload } from "../types";
 
 type Phase = "loading" | "chat" | "expired" | "invalid";
@@ -21,7 +22,10 @@ export default function ChatRoom() {
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   const [now, setNow] = useState(() => new Date());
+  const [uploading, setUploading] = useState(false);
+  const [viewer, setViewer] = useState<Message | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     getRoom(code)
@@ -90,6 +94,22 @@ export default function ChatRoom() {
       setTimeout(() => setCopied(false), 1500);
     } catch {
       setError("Não foi possível copiar o link");
+    }
+  }
+
+  async function onFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !connected) return;
+    setUploading(true);
+    setError("");
+    try {
+      const msg = await uploadMedia(code, file, false, identity);
+      send({ type: "media", message_id: msg.id });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha no upload");
+    } finally {
+      setUploading(false);
     }
   }
 
@@ -163,7 +183,7 @@ export default function ChatRoom() {
 
       <main className="flex-1 space-y-2 overflow-y-auto px-3 py-4">
         {messages.map((m) => (
-          <MessageBubble key={m.id} msg={m} isOwn={isOwn(m)} />
+          <MessageBubble key={m.id} msg={m} isOwn={isOwn(m)} onOpen={setViewer} />
         ))}
         <div ref={bottomRef} />
         {error && <p className="text-center text-xs text-rose-400">{error}</p>}
@@ -171,6 +191,22 @@ export default function ChatRoom() {
 
       <footer className="border-t border-slate-800 bg-slate-900/80 px-3 py-2 backdrop-blur">
         <form onSubmit={sendText} className="flex items-center gap-2">
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*,video/*"
+            className="hidden"
+            onChange={onFileSelected}
+          />
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={!connected || uploading}
+            title="Enviar foto ou vídeo"
+            className="rounded-xl border border-slate-700 px-3 py-2.5 text-lg text-slate-300 transition hover:border-slate-500 disabled:opacity-40"
+          >
+            {uploading ? "⏳" : "📎"}
+          </button>
           <span className="hidden px-1 text-xs text-slate-500 sm:block">
             {self ? shortHash(self.hash) : ""}
           </span>
@@ -190,6 +226,8 @@ export default function ChatRoom() {
           </button>
         </form>
       </footer>
+
+      {viewer && <MediaViewer message={viewer} onClose={() => setViewer(null)} />}
     </div>
   );
 }

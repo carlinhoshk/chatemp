@@ -42,6 +42,8 @@ func main() {
 	mux.HandleFunc("POST /api/rooms", h.CreateRoom)
 	mux.HandleFunc("GET /api/rooms/{code}", h.GetRoom)
 	mux.HandleFunc("GET /api/rooms/{code}/messages", h.ListMessages)
+	mux.HandleFunc("POST /api/rooms/{code}/media", h.UploadMedia)
+	mux.HandleFunc("GET /api/media/{id}", h.ServeMedia)
 	mux.HandleFunc("GET /ws", h.WebSocket)
 
 	if cfg.StaticDir != "" {
