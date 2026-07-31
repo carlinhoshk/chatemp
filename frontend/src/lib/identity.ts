@@ -8,6 +8,11 @@ export function getIdentity(): string {
   return id;
 }
 
+export function shortHash(hash: string): string {
+  if (hash.length < 9) return hash;
+  return `${hash.slice(0, 4)}…${hash.slice(-4)}`;
+}
+
 function generateId(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
