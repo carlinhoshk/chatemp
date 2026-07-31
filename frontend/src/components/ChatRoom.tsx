@@ -23,7 +23,9 @@ export default function ChatRoom() {
   const [copied, setCopied] = useState(false);
   const [now, setNow] = useState(() => new Date());
   const [uploading, setUploading] = useState(false);
+  const [ephemeral, setEphemeral] = useState(false);
   const [viewer, setViewer] = useState<Message | null>(null);
+  const [viewedIds, setViewedIds] = useState<Set<string>>(() => new Set());
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -61,6 +63,9 @@ export default function ChatRoom() {
           break;
         case "users":
           setUsers(p.users ?? []);
+          break;
+        case "media_deleted":
+          setMessages((prev) => prev.filter((m) => m.id !== p.message_id));
           break;
         case "room_expired":
           setPhase("expired");
@@ -104,14 +109,23 @@ export default function ChatRoom() {
     setUploading(true);
     setError("");
     try {
-      const msg = await uploadMedia(code, file, false, identity);
+      const msg = await uploadMedia(code, file, ephemeral, identity);
       send({ type: "media", message_id: msg.id });
+      if (ephemeral) setEphemeral(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha no upload");
     } finally {
       setUploading(false);
     }
   }
+
+  function onViewed(msg: Message) {
+    if (!msg.is_ephemeral || viewedIds.has(msg.id)) return;
+    setViewedIds((prev) => new Set(prev).add(msg.id));
+    send({ type: "viewed", message_id: msg.id });
+  }
+
+  const isConsumed = (m: Message) => m.viewed || viewedIds.has(m.id);
 
   if (phase === "expired") {
     return (
@@ -183,7 +197,13 @@ export default function ChatRoom() {
 
       <main className="flex-1 space-y-2 overflow-y-auto px-3 py-4">
         {messages.map((m) => (
-          <MessageBubble key={m.id} msg={m} isOwn={isOwn(m)} onOpen={setViewer} />
+          <MessageBubble
+            key={m.id}
+            msg={m}
+            isOwn={isOwn(m)}
+            isConsumed={isConsumed(m)}
+            onOpen={setViewer}
+          />
         ))}
         <div ref={bottomRef} />
         {error && <p className="text-center text-xs text-rose-400">{error}</p>}
@@ -198,6 +218,18 @@ export default function ChatRoom() {
             className="hidden"
             onChange={onFileSelected}
           />
+          <button
+            type="button"
+            onClick={() => setEphemeral((v) => !v)}
+            title="Mídia que desaparece após ser vista"
+            className={`rounded-xl border px-3 py-2.5 text-lg transition ${
+              ephemeral
+                ? "border-rose-500 bg-rose-500/20 text-rose-300"
+                : "border-slate-700 text-slate-400 hover:border-slate-500"
+            }`}
+          >
+            🔥
+          </button>
           <button
             type="button"
             onClick={() => fileRef.current?.click()}
@@ -227,7 +259,13 @@ export default function ChatRoom() {
         </form>
       </footer>
 
-      {viewer && <MediaViewer message={viewer} onClose={() => setViewer(null)} />}
+      {viewer && (
+        <MediaViewer
+          message={viewer}
+          onClose={() => setViewer(null)}
+          onViewed={onViewed}
+        />
+      )}
     </div>
   );
 }

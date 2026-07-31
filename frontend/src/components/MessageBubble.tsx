@@ -4,10 +4,11 @@ import { formatBytes, formatTime } from "../lib/time";
 interface Props {
   msg: Message;
   isOwn: boolean;
+  isConsumed: boolean;
   onOpen: (msg: Message) => void;
 }
 
-export default function MessageBubble({ msg, isOwn, onOpen }: Props) {
+export default function MessageBubble({ msg, isOwn, isConsumed, onOpen }: Props) {
   return (
     <div className={`flex flex-col ${isOwn ? "items-end" : "items-start"}`}>
       {!isOwn && (
@@ -31,6 +32,26 @@ export default function MessageBubble({ msg, isOwn, onOpen }: Props) {
               {formatTime(msg.created_at)}
             </span>
           </div>
+        ) : msg.is_ephemeral ? (
+          isConsumed ? (
+            <div className="flex items-center justify-center gap-2 px-6 py-8 text-xs font-medium text-slate-400">
+              🔥 Mídia temporária expirada
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => onOpen(msg)}
+              className="relative flex h-48 w-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-slate-800 to-slate-900"
+            >
+              <span className="text-3xl">🔥</span>
+              <span className="text-sm font-semibold text-slate-200">
+                Toque para ver
+              </span>
+              <span className="text-[10px] text-slate-400">
+                some em {msg.ttl_seconds ?? 0}s após abrir
+              </span>
+            </button>
+          )
         ) : (
           <button type="button" onClick={() => onOpen(msg)} className="block w-full text-left">
             {msg.kind === "image" ? (

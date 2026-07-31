@@ -11,6 +11,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"chatemp/internal/cleanup"
 	"chatemp/internal/identity"
 	"chatemp/internal/models"
 	"chatemp/internal/store"
@@ -132,7 +133,14 @@ func (h *Handlers) handleMedia(ctx context.Context, room models.Room, senderHash
 }
 
 func (h *Handlers) handleViewed(ctx context.Context, messageID string) {
-	// ephemeral media consumption is handled after the upload feature lands
-	_ = ctx
-	_ = messageID
+	if messageID == "" {
+		return
+	}
+	m, ok, err := h.store.MarkViewed(ctx, messageID, time.Now().UTC())
+	if err != nil || !ok {
+		return
+	}
+	time.AfterFunc(h.cfg.EphemeralTTL, func() {
+		cleanup.DeleteMedia(context.Background(), h.store, h.hub, h.storage, m)
+	})
 }

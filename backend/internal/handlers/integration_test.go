@@ -18,6 +18,7 @@ import (
 
 	"chatemp/internal/config"
 	"chatemp/internal/handlers"
+	"chatemp/internal/models"
 	"chatemp/internal/storage"
 	"chatemp/internal/store"
 	"chatemp/internal/ws"
@@ -186,10 +187,8 @@ var testPNG = func() []byte {
 	return b
 }()
 
-func TestMediaUploadAndServe(t *testing.T) {
-	srv, _ := newTestServer(t)
-	code := createRoom(t, srv, "alice")
-
+func uploadMedia(t *testing.T, srv *httptest.Server, code, user string, ephemeral bool) models.Message {
+	t.Helper()
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
 	fw, err := mw.CreateFormFile("file", "pixel.png")
@@ -201,9 +200,13 @@ func TestMediaUploadAndServe(t *testing.T) {
 	}
 	mw.Close()
 
-	req, _ := http.NewRequest("POST", srv.URL+"/api/rooms/"+code+"/media", &body)
+	url := srv.URL + "/api/rooms/" + code + "/media"
+	if ephemeral {
+		url += "?ephemeral=true"
+	}
+	req, _ := http.NewRequest("POST", url, &body)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
-	req.Header.Set("X-User", "alice")
+	req.Header.Set("X-User", user)
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("upload: %v", err)
@@ -213,20 +216,23 @@ func TestMediaUploadAndServe(t *testing.T) {
 		data, _ := io.ReadAll(res.Body)
 		t.Fatalf("upload status %d: %s", res.StatusCode, data)
 	}
-	var msg struct {
-		ID   string `json:"id"`
-		Kind string `json:"kind"`
-		Mime string `json:"mime"`
-	}
-	if err := json.NewDecoder(res.Body).Decode(&msg); err != nil {
+	var m models.Message
+	if err := json.NewDecoder(res.Body).Decode(&m); err != nil {
 		t.Fatalf("decode upload: %v", err)
 	}
-	if msg.Kind != "image" || msg.Mime != "image/png" {
-		t.Fatalf("bad media: %+v", msg)
+	return m
+}
+
+func TestMediaUploadAndServe(t *testing.T) {
+	srv, _ := newTestServer(t)
+	code := createRoom(t, srv, "alice")
+	m := uploadMedia(t, srv, code, "alice", false)
+	if m.Kind != "image" || m.Mime != "image/png" {
+		t.Fatalf("bad media: %+v", m)
 	}
 
 	// fetch it back
-	media, err := http.Get(srv.URL + "/api/media/" + msg.ID)
+	media, err := http.Get(srv.URL + "/api/media/" + m.ID)
 	if err != nil {
 		t.Fatalf("get media: %v", err)
 	}
@@ -255,25 +261,7 @@ func TestMediaBroadcast(t *testing.T) {
 	}
 	_ = readPayload(t, bob) // users update
 
-	// upload as alice, then announce over ws
-	var body bytes.Buffer
-	mw := multipart.NewWriter(&body)
-	fw, _ := mw.CreateFormFile("file", "pixel.png")
-	fw.Write(testPNG)
-	mw.Close()
-	req, _ := http.NewRequest("POST", srv.URL+"/api/rooms/"+code+"/media", &body)
-	req.Header.Set("Content-Type", mw.FormDataContentType())
-	req.Header.Set("X-User", "alice")
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("upload: %v", err)
-	}
-	var uploaded struct {
-		ID string `json:"id"`
-	}
-	json.NewDecoder(res.Body).Decode(&uploaded)
-	res.Body.Close()
-
+	uploaded := uploadMedia(t, srv, code, "alice", false)
 	if err := alice.WriteJSON(ws.Incoming{Type: "media", MessageID: uploaded.ID}); err != nil {
 		t.Fatalf("write media: %v", err)
 	}
@@ -283,5 +271,60 @@ func TestMediaBroadcast(t *testing.T) {
 	}
 	if got.Message.Kind != "image" || got.Message.Mime != "image/png" {
 		t.Fatalf("bad media message: %+v", got.Message)
+	}
+}
+
+func TestEphemeralMediaConsumed(t *testing.T) {
+	srv, _ := newTestServer(t)
+	code := createRoom(t, srv, "alice")
+	alice := dialWS(t, srv, code, "alice")
+	_ = readPayload(t, alice) // welcome
+	bob := dialWS(t, srv, code, "bob")
+	_ = readPayload(t, bob) // welcome
+	for i := 0; i < 2; i++ {
+		_ = readPayload(t, alice) // users updates
+	}
+	_ = readPayload(t, bob) // users update
+
+	uploaded := uploadMedia(t, srv, code, "alice", true)
+	if !uploaded.IsEphemeral || uploaded.TTLSeconds != 2 {
+		t.Fatalf("bad ephemeral upload: %+v", uploaded)
+	}
+
+	if err := alice.WriteJSON(ws.Incoming{Type: "media", MessageID: uploaded.ID}); err != nil {
+		t.Fatalf("write media: %v", err)
+	}
+	got := readPayload(t, bob)
+	if got.Type != "message" || got.Message == nil || !got.Message.IsEphemeral {
+		t.Fatalf("expected ephemeral message, got %+v", got)
+	}
+
+	// bob views it -> server deletes after TTL and broadcasts media_deleted
+	if err := bob.WriteJSON(ws.Incoming{Type: "viewed", MessageID: uploaded.ID}); err != nil {
+		t.Fatalf("write viewed: %v", err)
+	}
+
+	start := time.Now()
+	for {
+		p := readPayload(t, bob)
+		if p.Type == "media_deleted" {
+			if p.MessageID != uploaded.ID {
+				t.Fatalf("deleted wrong message: %+v", p)
+			}
+			break
+		}
+		if time.Since(start) > 8*time.Second {
+			t.Fatal("timed out waiting for media_deleted")
+		}
+	}
+
+	// media must be gone from disk/db
+	res, err := http.Get(srv.URL + "/api/media/" + uploaded.ID)
+	if err != nil {
+		t.Fatalf("get deleted media: %v", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404 after deletion, got %d", res.StatusCode)
 	}
 }
