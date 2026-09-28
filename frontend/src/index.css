@@ -1,11 +1,36 @@
 @import "tailwindcss";
 
+/* Respeita notch / barra de gestos (viewport-fit=cover no index.html). */
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+@utility pt-safe-3 {
+  padding-top: calc(env(safe-area-inset-top) + 0.75rem);
+}
+@utility pb-safe-2 {
+  padding-bottom: calc(env(safe-area-inset-bottom) + 0.5rem);
+}
+
 html,
 body,
 #root {
   height: 100%;
 }
 
+/* dvh acompanha a barra de endereço e o teclado no celular. */
+#root {
+  height: 100dvh;
+}
+
+html {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
   @apply bg-slate-950 text-slate-100 antialiased;
+  overscroll-behavior: none;
 }

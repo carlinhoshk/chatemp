@@ -58,6 +58,10 @@ export default function HomeScreen() {
             value={code}
             onChange={(e) => setCode(e.target.value.toUpperCase())}
             placeholder="Código da sala"
+            autoCapitalize="characters"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
             maxLength={8}
             className="w-full rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-center text-lg tracking-[0.3em] outline-none focus:border-teal-500"
           />

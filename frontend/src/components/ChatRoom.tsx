@@ -6,6 +6,8 @@ import { formatCountdown } from "../lib/time";
 import { useWebSocket } from "../hooks/useWebSocket";
 import MessageBubble from "./MessageBubble";
 import MediaViewer from "./MediaViewer";
+import MediaPreview from "./MediaPreview";
+import { compressImage } from "../lib/image";
 import type { Message, Room, SelfInfo, WsPayload } from "../types";
 
 type Phase = "loading" | "chat" | "expired" | "invalid";
@@ -28,6 +30,8 @@ export default function ChatRoom() {
   const [viewedIds, setViewedIds] = useState<Set<string>>(() => new Set());
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const [pending, setPending] = useState<{ file: File; source: "camera" | "file" } | null>(null);
 
   useEffect(() => {
     getRoom(code)
@@ -93,6 +97,14 @@ export default function ChatRoom() {
   }
 
   async function copyLink() {
+    if (navigator.share && matchMedia("(pointer: coarse)").matches) {
+      try {
+        await navigator.share({ title: "ChatTemp", text: `Entre na sala ${code}`, url: location.href });
+      } catch {
+        /* usuário cancelou o compartilhamento */
+      }
+      return;
+    }
     try {
       await navigator.clipboard.writeText(location.href);
       setCopied(true);
@@ -102,15 +114,37 @@ export default function ChatRoom() {
     }
   }
 
-  async function onFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+  async function onFileSelected(
+    e: React.ChangeEvent<HTMLInputElement>,
+    source: "camera" | "file",
+  ) {
     const file = e.target.files?.[0];
     e.target.value = "";
-    if (!file || !connected) return;
+    if (!file) return;
+    setError("");
+    setUploading(true);
+    try {
+      setPending({ file: await compressImage(file), source });
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function retake() {
+    const source = pending?.source;
+    setPending(null);
+    setError("");
+    (source === "camera" ? cameraRef : fileRef).current?.click();
+  }
+
+  async function sendPending() {
+    if (!pending || !connected) return;
     setUploading(true);
     setError("");
     try {
-      const msg = await uploadMedia(code, file, ephemeral, identity);
+      const msg = await uploadMedia(code, pending.file, ephemeral, identity);
       send({ type: "media", message_id: msg.id });
+      setPending(null);
       if (ephemeral) setEphemeral(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha no upload");
@@ -163,7 +197,7 @@ export default function ChatRoom() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center gap-3 border-b border-slate-800 bg-slate-900/80 px-4 py-3 backdrop-blur">
+      <header className="flex items-center gap-3 border-b border-slate-800 bg-slate-900/80 px-4 py-3 pt-safe-3 backdrop-blur">
         <Link to="/" className="rounded-lg px-1 text-xl text-slate-400 hover:text-slate-200">
           ‹
         </Link>
@@ -191,11 +225,11 @@ export default function ChatRoom() {
           onClick={copyLink}
           className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 hover:border-slate-500"
         >
-          {copied ? "Copiado!" : "Copiar link"}
+          {copied ? "Copiado!" : "Convidar"}
         </button>
       </header>
 
-      <main className="flex-1 space-y-2 overflow-y-auto px-3 py-4">
+      <main className="flex-1 space-y-2 overflow-y-auto overscroll-contain px-3 py-4">
         {messages.map((m) => (
           <MessageBubble
             key={m.id}
@@ -209,20 +243,28 @@ export default function ChatRoom() {
         {error && <p className="text-center text-xs text-rose-400">{error}</p>}
       </main>
 
-      <footer className="border-t border-slate-800 bg-slate-900/80 px-3 py-2 backdrop-blur">
-        <form onSubmit={sendText} className="flex items-center gap-2">
+      <footer className="border-t border-slate-800 bg-slate-900/80 px-2 py-2 pb-safe-2 backdrop-blur sm:px-3">
+        <form onSubmit={sendText} className="flex items-center gap-1.5 sm:gap-2">
           <input
             ref={fileRef}
             type="file"
             accept="image/*,video/*"
             className="hidden"
-            onChange={onFileSelected}
+            onChange={(e) => onFileSelected(e, "file")}
+          />
+          <input
+            ref={cameraRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={(e) => onFileSelected(e, "camera")}
           />
           <button
             type="button"
             onClick={() => setEphemeral((v) => !v)}
             title="Mídia que desaparece após ser vista"
-            className={`rounded-xl border px-3 py-2.5 text-lg transition ${
+            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border text-lg transition ${
               ephemeral
                 ? "border-rose-500 bg-rose-500/20 text-rose-300"
                 : "border-slate-700 text-slate-400 hover:border-slate-500"
@@ -234,10 +276,21 @@ export default function ChatRoom() {
             type="button"
             onClick={() => fileRef.current?.click()}
             disabled={!connected || uploading}
-            title="Enviar foto ou vídeo"
-            className="rounded-xl border border-slate-700 px-3 py-2.5 text-lg text-slate-300 transition hover:border-slate-500 disabled:opacity-40"
+            title="Enviar foto ou vídeo da galeria"
+            aria-label="Anexar da galeria"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-700 text-lg text-slate-300 transition hover:border-slate-500 disabled:opacity-40"
           >
             {uploading ? "⏳" : "📎"}
+          </button>
+          <button
+            type="button"
+            onClick={() => cameraRef.current?.click()}
+            disabled={!connected || uploading}
+            title="Tirar foto"
+            aria-label="Abrir câmera"
+            className="hidden h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-700 text-lg text-slate-300 transition hover:border-slate-500 disabled:opacity-40 pointer-coarse:flex"
+          >
+            📷
           </button>
           <span className="hidden px-1 text-xs text-slate-500 sm:block">
             {self ? shortHash(self.hash) : ""}
@@ -245,19 +298,38 @@ export default function ChatRoom() {
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Digite uma mensagem..."
+            placeholder="Mensagem..."
             maxLength={4000}
-            className="min-w-0 flex-1 rounded-xl border border-slate-700 bg-slate-800 px-4 py-2.5 outline-none placeholder:text-slate-500 focus:border-teal-500"
+            enterKeyHint="send"
+            className="h-11 min-w-0 flex-1 rounded-xl border border-slate-700 bg-slate-800 px-3 text-base outline-none placeholder:text-slate-500 focus:border-teal-500 sm:px-4"
           />
           <button
             type="submit"
             disabled={!connected || !input.trim()}
-            className="rounded-xl bg-teal-500 px-4 py-2.5 font-semibold text-slate-950 transition hover:bg-teal-400 disabled:opacity-40"
+            aria-label="Enviar"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-teal-500 font-semibold text-slate-950 transition hover:bg-teal-400 disabled:opacity-40"
           >
             ➤
           </button>
         </form>
       </footer>
+
+      {pending && (
+        <MediaPreview
+          file={pending.file}
+          ephemeral={ephemeral}
+          sending={uploading}
+          error={error}
+          retakeLabel={pending.source === "camera" ? "Tirar outra" : "Escolher outra"}
+          onToggleEphemeral={() => setEphemeral((v) => !v)}
+          onRetake={retake}
+          onCancel={() => {
+            setPending(null);
+            setError("");
+          }}
+          onSend={sendPending}
+        />
+      )}
 
       {viewer && (
         <MediaViewer

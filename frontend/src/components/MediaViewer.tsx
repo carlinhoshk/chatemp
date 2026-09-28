@@ -30,7 +30,7 @@ export default function MediaViewer({ message, onClose, onViewed }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/95 p-4"
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/95 p-4 pt-safe-3 pb-safe-2"
       onClick={message.is_ephemeral ? undefined : onClose}
     >
       {message.is_ephemeral && (
@@ -41,14 +41,14 @@ export default function MediaViewer({ message, onClose, onViewed }: Props) {
               style={{ width: `${total ? (remaining / total) * 100 : 0}%` }}
             />
           </div>
-          <div className="absolute left-4 top-3 flex items-center gap-1.5 rounded-full bg-rose-500 px-3 py-1 text-xs font-semibold text-white">
+          <div className="absolute left-4 top-[calc(env(safe-area-inset-top)+0.75rem)] flex items-center gap-1.5 rounded-full bg-rose-500 px-3 py-1 text-xs font-semibold text-white">
             🔥 {remaining}s
           </div>
         </>
       )}
       <button
         onClick={onClose}
-        className="absolute right-4 top-3 flex h-10 w-10 items-center justify-center rounded-full bg-slate-800/80 text-xl text-slate-200 hover:bg-slate-700"
+        className="absolute right-4 top-[calc(env(safe-area-inset-top)+0.75rem)] flex h-10 w-10 items-center justify-center rounded-full bg-slate-800/80 text-xl text-slate-200 hover:bg-slate-700"
         aria-label="Fechar"
       >
         ✕

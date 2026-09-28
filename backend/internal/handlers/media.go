@@ -55,7 +55,7 @@ func (h *Handlers) UploadMedia(w http.ResponseWriter, r *http.Request) {
 
 	sniff := make([]byte, 512)
 	n, _ := io.ReadFull(file, sniff)
-	ctype := http.DetectContentType(sniff[:n])
+	ctype := detectContentType(sniff[:n])
 	kind, ext := mediaKind(ctype)
 	if kind == "" {
 		writeError(w, http.StatusUnsupportedMediaType, "tipo de mídia não suportado")
@@ -110,6 +110,22 @@ func (h *Handlers) ServeMedia(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", m.Mime)
 	http.ServeFile(w, r, path)
+}
+
+// detectContentType complementa http.DetectContentType, que não reconhece
+// contêineres ISO-BMFF comuns em celular, como o .mov do iPhone (marca "qt  ").
+func detectContentType(b []byte) string {
+	ctype := http.DetectContentType(b)
+	if ctype != "application/octet-stream" || len(b) < 12 || string(b[4:8]) != "ftyp" {
+		return ctype
+	}
+	switch string(b[8:12]) {
+	case "qt  ":
+		return "video/quicktime"
+	case "isom", "iso2", "avc1", "mp41", "mp42", "M4V ", "3gp4", "3gp5", "3gp6":
+		return "video/mp4"
+	}
+	return ctype
 }
 
 func mediaKind(ctype string) (kind, ext string) {
